@@ -17,6 +17,14 @@ train_dataset = pickle.load(open('../data/labelled_dataset_train.p', 'rb'))
 valid_dataset = pickle.load(open('../data/labelled_dataset_valid.p', 'rb'))
 test_dataset = pickle.load(open('../data/labelled_dataset_test.p', 'rb'))
 
+if cfg["model"] == 'ct':
+    codes_train, _, annos_train, annos2_train = zip(*train_dataset)
+    train_dataset = list(zip(codes_train, annos_train, annos2_train))
+    codes_valid, _, annos_valid, annos2_valid = zip(*valid_dataset)
+    valid_dataset = list(zip(codes_valid, annos_valid, annos2_valid))
+    codes_test, _, annos_test, annos2_test = zip(*test_dataset)
+    test_dataset = list(zip(codes_test, annos_test, annos2_test))
+
 codes = pickle.load(open('../data/codes','rb'))
 annos = pickle.load(open('../data/annos','rb'))
 asts = pickle.load(open('../data/asts','rb'))
@@ -53,8 +61,9 @@ if use_cuda:
     device_id = 0
     torch.cuda.set_device(device_id)
 
-print("Number of epochs = ", num_epochs)
-print("Batch size = ", batch_size)
+print(f"Number of epochs = {num_epochs}")
+print(f"Batch size = {batch_size}")
+print(f"Model = {model_type.upper()}")
 
 # Loading word embeddings
 if use_bin:

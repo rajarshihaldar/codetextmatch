@@ -8,16 +8,12 @@ Download the following folders before running the models:
 - data/ folder from https://drive.google.com/drive/folders/1H8TFDUzIFAezM1rVoB_1PQsCxNyqAQ2f?usp=sharing
 - saved_models/ folder from https://drive.google.com/drive/folders/1EQwDw0JQzSXDEN5gaadN3LMxVyjDSYL8?usp=sharing
 
-Run the following files for training:
+In src/ folder run train.py for training and eval.py in for evaluation
 
-- ct_classifier.py: Uses Code and Text features as input (CT)
-- cat_classifier.py: Uses Code, AST and Text features as input (CAT)
-- mpctm_classifier.py: Uses Code, AST and Text features as input and uses multi-perspective architecture (MPCTM)
+Config File: config.yml
 
-Run the following files for evaluation:
-
-- eval_ct_classifier.py: Uses Code and Text features as input (CT)
-- eval_cat_classifier.py: Uses Code, AST and Text features as input (CAT)
-- eval_mpctm_classifier.py: Uses Code, AST and Text features as input and uses multi-perspective architecture (MPCTM)
+- epochs: Number of epochs to train
+- batch_size: Batch size to use
+- model: Which Model to train/evaluate. Can be 'ct', 'cat' or 'mpctm'
 
 Trained models are stored in saved_models/ folder and Evaluation results are stored in results/ folder
