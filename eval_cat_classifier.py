@@ -18,7 +18,6 @@ import torch.utils.data
 # import torchvision.transforms as transforms
 # import torchvision.datasets as dsets
 
-from models.bimpm import LSTMModel, LSTMModelMulti, DenseModel, BiMPMAggregator, MPCTMAggregator, BiMPMLayer, BiMPMClassifier, MPCTMClassifier
 
 train_dataset = pickle.load(open('data/labelled_dataset_train.p', 'rb'))
 valid_dataset = pickle.load(open('data/labelled_dataset_valid.p', 'rb'))
@@ -185,7 +184,42 @@ def create_emb_layer(weights_matrix, non_trainable=False):
     return emb_layer, num_embeddings, embedding_dim
 
 
+class LSTMModel(nn.Module):
+    def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim):
+        super(LSTMModel, self).__init__()
+        self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
+        self.hidden_size = hidden_size
+        if use_bidirectional:
+            self.num_layers = num_layers * 2
+        else:
+            self.num_layers = num_layers
+        self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers, batch_first=True, bidirectional=use_bidirectional)
+        self.fc = nn.Sequential(
+            nn.Linear(dense_dim*(int(use_bidirectional)+1), dense_dim),
+            nn.Dropout(0.2),
+            nn.ReLU(),
+            nn.Linear(dense_dim, output_dim),
+            nn.ReLU()
+        )
 
+    def forward(self, x):
+        if torch.cuda.is_available() and use_cuda:
+            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
+        else:
+            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+
+        # Initialize cell state
+        if torch.cuda.is_available() and use_cuda:
+            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
+        else:
+            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+
+        out, (hn, cn) = self.lstm(self.embedding(x), (h0, c0))
+        # out = self.fc(out[:, -1, :])
+        out, _ = torch.max(out, dim=1, keepdim=False, out=None)
+        out = self.fc(out)
+
+        return out
 
 
 class SimModel(nn.Module):
@@ -206,13 +240,12 @@ class SimModel(nn.Module):
         return sim_score, anno_vector, code_vector
 
 
-# sim_model = SimModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, weights_matrix_ast)
-sim_model = MPCTMClassifier(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len_code)
+sim_model = SimModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, weights_matrix_ast)
 
 if torch.cuda.is_available() and use_cuda:
     sim_model.cuda()
 
-sim_model.load_state_dict(torch.load(f"{save_path}/sim_model_mpctm"))
+sim_model.load_state_dict(torch.load(f"{save_path}/sim_model_ast"))
 
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                            batch_size=batch_size,
@@ -248,9 +281,9 @@ def eval_matching():
         anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
         code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
         if torch.cuda.is_available() and use_cuda:
-            sim_score = sim_model(anno_in.cuda(), code_in.cuda())
+            sim_score, _, _ = sim_model(anno_in.cuda(), code_in.cuda())
         else:
-            sim_score = sim_model(anno_in, code_in)
+            sim_score, _, _ = sim_model(anno_in, code_in)
         
         if torch.cuda.is_available() and use_cuda:
             labels = labels.cuda()
@@ -321,8 +354,8 @@ def eval_retrieval():
             count_dist = 0
             for code_dist, ast_dist in distractor_list:
                 count_dist += 1
-                if count_dist >= 99:
-                    break
+                # if count_dist >= 99:
+                #     break
                 codebase.append((code_dist[0], ast_dist[0]))
             if torch.cuda.is_available() and use_cuda:
                 anno_in = anno_in.cuda()
@@ -337,7 +370,7 @@ def eval_retrieval():
                     code_in = code_in.cuda()
                     ast_in = ast_in.cuda()
                 
-                sim_score = sim_model(anno_in, code_in, ast_in)
+                sim_score, _, _ = sim_model(anno_in, code_in, ast_in)
 
                 # code_vector = code_model(code_in)
                 # if torch.cuda.is_available() and use_cuda:
@@ -382,7 +415,7 @@ def eval_retrieval():
     r1 /= count
     r5 /= count
     r10 /= count
-    with open("results/results_MPTCTM.txt","w") as f:
+    with open("results/results_CAT.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")
