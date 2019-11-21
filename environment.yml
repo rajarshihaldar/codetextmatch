@@ -1,4 +1,4 @@
-name: sem3
+name: ctmatch
 channels:
   - anaconda
   - defaults
@@ -67,5 +67,5 @@ dependencies:
     - urllib3==1.25.3
     - werkzeug==0.16.0
     - wrapt==1.11.2
-prefix: /home/rhaldar2/anaconda3/envs/sem3
+prefix: /home/rhaldar2/anaconda3/envs/ctmatch
 

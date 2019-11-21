@@ -3,13 +3,17 @@ import torch.nn as nn
 import torch.utils.data
 
 import numpy as np
+import yaml
 
-hidden_size = 200
-dense_dim = 200
-output_dim = 100
-num_layers_lstm = 2
-use_cuda = True
-use_bidirectional = True
+with open("config.yml", 'r') as config_file:
+    cfg = yaml.load(config_file, Loader=yaml.FullLoader)
+
+hidden_size = cfg["hidden_size"]
+dense_dim = cfg["dense_dim"]
+output_dim = cfg["output_dim"]
+num_layers_lstm = cfg["num_layers_lstm"]
+use_cuda = cfg["use_cuda"]
+use_bidirectional = cfg["use_bidirectional"]
 
 if use_cuda:
     device_id = 0
@@ -60,6 +64,36 @@ class LSTMModel(nn.Module):
         out = self.fc(out)
 
         return out
+
+class CTModel(nn.Module):
+    def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code):
+        super(CTModel, self).__init__()
+        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
+
+    def forward(self, anno_in, code_in):
+        anno_vector = self.anno_model(anno_in)
+        code_vector = self.code_model(code_in)
+        sim_score = 1.0-self.dist(anno_vector, code_vector)
+        return sim_score, anno_vector, code_vector
+
+class CATModel(nn.Module):
+    def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
+        weights_matrix_ast):
+        super(CATModel, self).__init__()
+        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
+        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
+
+    def forward(self, anno_in, code_in, ast_in):
+        anno_vector = self.anno_model(anno_in)
+        code_vector = self.code_model(code_in)
+        ast_vector = self.ast_model(ast_in)
+        code_ast_vector = torch.cat((code_vector, ast_vector), dim = 1)
+        sim_score = 1.0-self.dist(anno_vector, code_ast_vector)
+        return sim_score, anno_vector, code_vector
 
 class LSTMModelMulti(nn.Module):
     def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim):
