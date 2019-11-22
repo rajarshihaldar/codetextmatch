@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 import time
 import yaml
+from tqdm import tqdm, trange
 from models import LSTMModel, CATModel
 
 # import spacy
@@ -248,10 +249,12 @@ else:
 iter = 0
 sim_model.train()
 start_time = time.time()
-for epoch in range(num_epochs):
+loss_file = open('loss_file_cat.csv','w')
+for epoch in trange(num_epochs):
     epoch += 1
     batch_iter = 0
-    for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(train_loader):
+    loss_epoch = 0.0
+    for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(tqdm(train_loader)):
         sim_model.zero_grad()
         anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
         code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
@@ -271,9 +274,16 @@ for epoch in range(num_epochs):
         opt.step()
         iter += 1
         batch_iter += 1
-        print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
+        loss_epoch += loss.item()
+        # tqdm.write("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
+    tqdm.write("Epoch: {}. Loss: {}".format(epoch, loss_epoch))
+    loss_file.write("{},{}\n".format(epoch, loss_epoch))
 
+loss_file.close()
 print('Time taken to train: {} seconds'.format(time.time()-start_time))
 print("Saving Models")
-torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ast")
+if cfg["encoder"] == 'LSTM':
+    torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ast")
+else:
+    torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ast_transformer")
 print("Saved Models")

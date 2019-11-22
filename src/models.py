@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.utils.data
+from torch.nn import TransformerEncoderLayer
 
 import numpy as np
 import yaml
@@ -65,11 +66,38 @@ class LSTMModel(nn.Module):
 
         return out
 
+class SelfAttnModel(nn.Module):
+    def __init__(self, weights_matrix, hidden_size, dense_dim, output_dim):
+        super(SelfAttnModel, self).__init__()
+        self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
+        self.hidden_size = hidden_size
+        self.selfattnlayer = TransformerEncoderLayer(d_model=embedding_dim, nhead=4, dim_feedforward=hidden_size, 
+            dropout=0.1)
+        self.fc = nn.Sequential(
+            nn.Linear(embedding_dim, dense_dim),
+            nn.Dropout(0.2),
+            nn.ReLU(),
+            nn.Linear(dense_dim, output_dim),
+            nn.ReLU()
+        )
+    def forward(self, x):
+        out = self.selfattnlayer(self.embedding(x))
+        out, _ = torch.max(out, dim=1, keepdim=False, out=None)
+        out = self.fc(out)
+        return out
+
 class CTModel(nn.Module):
     def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code):
         super(CTModel, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        if cfg["encoder"]=='Transformer':
+            self.anno_model = SelfAttnModel(weights_matrix_anno, hidden_size, dense_dim, output_dim)
+            self.code_model = SelfAttnModel(weights_matrix_code, hidden_size, dense_dim, output_dim)
+        elif cfg["encoder"]=='LSTM':
+            self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim)
+            self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        else:
+            print("Encoder must be Transformer or LSTM")
+            exit()
         self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
 
     def forward(self, anno_in, code_in):
