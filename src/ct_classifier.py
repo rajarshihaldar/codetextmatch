@@ -185,6 +185,7 @@ for epoch in trange(num_epochs):
         loss_epoch += loss.item()
         # tqdm.write("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
         # print(list(code_model.parameters())[1])
+    loss_epoch /= batch_iter
     tqdm.write("Epoch: {}. Loss: {}".format(epoch, loss_epoch))
     loss_file.write("{},{}\n".format(epoch, loss_epoch))
 
