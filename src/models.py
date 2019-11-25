@@ -110,9 +110,14 @@ class CATModel(nn.Module):
     def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
         weights_matrix_ast):
         super(CATModel, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        if cfg["encoder"]=='Transformer':
+            self.anno_model = SelfAttnModel(weights_matrix_anno, hidden_size, dense_dim, 2*output_dim)
+            self.code_model = SelfAttnModel(weights_matrix_code, hidden_size, dense_dim, output_dim)
+            self.ast_model = SelfAttnModel(weights_matrix_ast, hidden_size, dense_dim, output_dim)
+        elif cfg["encoder"]=='LSTM':
+            self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
+            self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+            self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
         self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
 
     def forward(self, anno_in, code_in, ast_in):

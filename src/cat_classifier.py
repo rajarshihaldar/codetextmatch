@@ -76,8 +76,8 @@ if use_cuda:
     torch.cuda.set_device(device_id)
 
 print("Number of epochs = ", num_epochs)
-
-
+print("Batch size = ", batch_size)
+print("Encoder Type: ", cfg["encoder"])
 
 # Loading word embeddings
 if use_bin:
