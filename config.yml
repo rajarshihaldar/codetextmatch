@@ -1,5 +1,5 @@
-epochs: 20
-batch_size: 100
+epochs: 2
+batch_size: 8
 # model can be 'ct', 'cat' or 'mpctm'
 model: 'mpctm'
 random_seed: 31415
