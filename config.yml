@@ -1,0 +1,20 @@
+epochs: 20
+batch_size: 100
+# model can be 'ct', 'cat' or 'mpctm'
+model: 'mpctm'
+random_seed: 31415
+embedding_dim: 300
+learning_rate: 0.0005
+hidden_size: 200
+dense_dim: 200
+output_dim: 100
+num_layers_lstm: 2
+use_cuda: True
+use_softmax_classifier: False
+use_bin: False
+use_bidirectional: True
+use_adam: True
+use_parallel: False
+save_path: 'saved_models'
+# encoder can be 'LSTM' or 'Transformer'
+encoder: 'Transformer'
