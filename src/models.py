@@ -118,7 +118,7 @@ class CATModel(nn.Module):
             self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
             self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
             self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
+        self.dist = nn.modules.distance.PairwiseDistance(p=2, eps=1e-10)
 
     def forward(self, anno_in, code_in, ast_in):
         anno_vector = self.anno_model(anno_in)
