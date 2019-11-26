@@ -5,12 +5,17 @@ import numpy as np
 import time
 import json
 import yaml
+import argparse
 import torch
 import torch.nn as nn
 import torch.utils.data
 from models import MPCTMClassifier, CATModel, CTModel
 
-with open("../config.yml", 'r') as config_file:
+parser = argparse.ArgumentParser(description='Train Code-Text Model')
+parser.add_argument('-config', type=str, default='../config.yml', help='Path to Config File')
+args = parser.parse_args()
+
+with open(args.config, 'r') as config_file:
     cfg = yaml.load(config_file, Loader=yaml.FullLoader)
 
 train_dataset = pickle.load(open('../data/labelled_dataset_train.p', 'rb'))
