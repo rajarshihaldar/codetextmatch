@@ -17,4 +17,4 @@ use_adam: True
 use_parallel: False
 save_path: 'saved_models'
 # encoder can be 'LSTM' or 'Transformer'
-encoder: 'LSTM'
+encoder: 'Transformer'
