@@ -131,12 +131,13 @@ weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
 
 if model_type == 'mpctm':
     sim_model = MPCTMClassifier(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, 
-        num_layers_lstm, dense_dim, output_dim, seq_len_code)
+        num_layers_lstm, dense_dim, output_dim, seq_len_code, use_cuda)
 elif model_type == 'ct':
-    sim_model = CTModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code)
+    sim_model = CTModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
+        use_cuda)
 elif model_type == 'cat':
     sim_model = CATModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, 
-        weights_matrix_ast)
+        weights_matrix_ast, use_cuda)
 
 if torch.cuda.is_available() and use_cuda:
     sim_model.cuda()

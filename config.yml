@@ -1,7 +1,7 @@
 epochs: 20
 batch_size: 100
 # model can be 'ct', 'cat' or 'mpctm'
-model: 'mpctm'
+model: 'cat'
 random_seed: 31415
 embedding_dim: 300
 learning_rate: 0.0005

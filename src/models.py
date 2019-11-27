@@ -3,21 +3,21 @@ import torch.nn as nn
 import torch.utils.data
 
 import numpy as np
-import yaml
+# import yaml
 
-with open("../config.yml", 'r') as config_file:
-    cfg = yaml.load(config_file, Loader=yaml.FullLoader)
+# with open("../config.yml", 'r') as config_file:
+#     cfg = yaml.load(config_file, Loader=yaml.FullLoader)
 
-hidden_size = cfg["hidden_size"]
-dense_dim = cfg["dense_dim"]
-output_dim = cfg["output_dim"]
-num_layers_lstm = cfg["num_layers_lstm"]
-use_cuda = cfg["use_cuda"]
-use_bidirectional = cfg["use_bidirectional"]
+# hidden_size = cfg["hidden_size"]
+# dense_dim = cfg["dense_dim"]
+# output_dim = cfg["output_dim"]
+# num_layers_lstm = cfg["num_layers_lstm"]
+# use_cuda = cfg["use_cuda"]
+# use_bidirectional = cfg["use_bidirectional"]
 
-if use_cuda:
-    device_id = 0
-    torch.cuda.set_device(device_id)
+# if use_cuda:
+#     device_id = 0
+#     torch.cuda.set_device(device_id)
 
 def create_emb_layer(weights_matrix, non_trainable=False):
     num_embeddings, embedding_dim = weights_matrix.size()
@@ -29,8 +29,9 @@ def create_emb_layer(weights_matrix, non_trainable=False):
     return emb_layer, num_embeddings, embedding_dim
 
 class LSTMModel(nn.Module):
-    def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim):
+    def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim, use_bidirectional=True, use_cuda=True):
         super(LSTMModel, self).__init__()
+        self.use_cuda = use_cuda
         self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
         self.hidden_size = hidden_size
         if use_bidirectional:
@@ -47,13 +48,13 @@ class LSTMModel(nn.Module):
         )
 
     def forward(self, x):
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
         else:
             h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
 
         # Initialize cell state
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
         else:
             c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
@@ -66,10 +67,11 @@ class LSTMModel(nn.Module):
         return out
 
 class CTModel(nn.Module):
-    def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code):
+    def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
+        use_cuda=True):
         super(CTModel, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, use_cuda)
+        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim, use_cuda)
         self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
 
     def forward(self, anno_in, code_in):
@@ -80,11 +82,11 @@ class CTModel(nn.Module):
 
 class CATModel(nn.Module):
     def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
-        weights_matrix_ast):
+        weights_matrix_ast, use_cuda=True):
         super(CATModel, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim, use_cuda)
+        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim, use_cuda)
+        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, use_cuda)
         self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
 
     def forward(self, anno_in, code_in, ast_in):
@@ -96,8 +98,9 @@ class CATModel(nn.Module):
         return sim_score, anno_vector, code_vector
 
 class LSTMModelMulti(nn.Module):
-    def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim):
+    def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim, use_bidirectional=True, use_cuda=True):
         super(LSTMModelMulti, self).__init__()
+        self.use_cuda = use_cuda
         self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
         self.hidden_size = hidden_size
         if use_bidirectional:
@@ -107,13 +110,13 @@ class LSTMModelMulti(nn.Module):
         self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers, batch_first=True, bidirectional=use_bidirectional)
 
     def forward(self, x):
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
         else:
             h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
 
         # Initialize cell state
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
         else:
             c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
@@ -142,8 +145,9 @@ class DenseModel(nn.Module):
 
 
 class BiMPMAggregator(nn.Module):
-    def __init__(self, input_dim, num_layers, hidden_dim, output_dim):
+    def __init__(self, input_dim, num_layers, hidden_dim, output_dim, use_cuda=True):
         super(BiMPMAggregator, self).__init__()
+        self.use_cuda = use_cuda
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.input_dim = input_dim
@@ -160,13 +164,13 @@ class BiMPMAggregator(nn.Module):
         # self.fc2 = nn.Linear(hidden_dim, output_dim)  
     
     def forward(self, x1, x2):
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             h0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim).cuda()
             h1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim).cuda()
         else:
             h0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim)
             h1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim)
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             c0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim).cuda()
             c1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim).cuda()
         else:
@@ -188,8 +192,9 @@ class BiMPMAggregator(nn.Module):
 
 
 class MPCTMAggregator(nn.Module):
-    def __init__(self, input_dim, num_layers, hidden_dim, output_dim):
+    def __init__(self, input_dim, num_layers, hidden_dim, output_dim, use_cuda=True):
         super(MPCTMAggregator, self).__init__()
+        self.use_cuda = use_cuda
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.input_dim = input_dim
@@ -208,13 +213,13 @@ class MPCTMAggregator(nn.Module):
         # self.fc2 = nn.Linear(hidden_dim, output_dim)  
     
     def forward(self, x1, x2, anno, code):
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             h0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim).cuda()
             h1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim).cuda()
         else:
             h0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim)
             h1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim)
-        if torch.cuda.is_available() and use_cuda:
+        if torch.cuda.is_available() and self.use_cuda:
             c0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim).cuda()
             c1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim).cuda()
         else:
@@ -243,12 +248,15 @@ class MPCTMAggregator(nn.Module):
 
 
 class BiMPMLayer(nn.Module):
-    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len):
+    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size,
+        num_layers_lstm, dense_dim, output_dim, seq_len, use_cuda=True):
         super(BiMPMLayer, self).__init__()
         self.multi_anno_model = LSTMModelMulti(weights_matrix_anno, 2*hidden_size, num_layers_lstm, dense_dim, 
-            2*output_dim)
-        self.multi_code_model = LSTMModelMulti(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.multi_ast_model = LSTMModelMulti(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
+            2*output_dim, use_cuda)
+        self.multi_code_model = LSTMModelMulti(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim,
+            output_dim, use_cuda)
+        self.multi_ast_model = LSTMModelMulti(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim,
+            output_dim, use_cuda)
         self.model= nn.ModuleList()
         for i in range(16):
             new_model = DenseModel(2*hidden_size, 2*hidden_size, 2*hidden_size)
@@ -256,7 +264,7 @@ class BiMPMLayer(nn.Module):
         # self.aggregation_model = AggregationModel(12, 1, seq_len, 2)
         self.cos = nn.CosineSimilarity(dim=2)
         self.batch_size = batch_size
-
+        self.hidden_size=hidden_size
 
     def full_matching(self, anno_forward, code_forward, anno_reverse, code_reverse, model1, model2, model3, model4):
         # model1 = dense_model1
@@ -451,8 +459,8 @@ class BiMPMLayer(nn.Module):
         multi_code_vector = self.multi_code_model(code_in)
         multi_ast_vector = self.multi_ast_model(ast_in)
         multi_code_ast_vector = torch.cat((multi_code_vector, multi_ast_vector), dim = 2)
-        anno_forward, anno_reverse = torch.split(multi_anno_vector,2*hidden_size, dim=2)
-        code_forward,code_reverse = torch.split(multi_code_ast_vector,2*hidden_size, dim=2)
+        anno_forward, anno_reverse = torch.split(multi_anno_vector,2*self.hidden_size, dim=2)
+        code_forward,code_reverse = torch.split(multi_code_ast_vector,2*self.hidden_size, dim=2)
         full_match_tensor1, full_match_tensor2 = self.full_matching(anno_forward, code_forward, anno_reverse, 
             code_reverse, self.model[0], self.model[1], self.model[2], self.model[3])
 
@@ -487,10 +495,12 @@ class BiMPMLayer(nn.Module):
         return feature_tensor1, feature_tensor2
 
 class BiMPMClassifier(nn.Module):
-    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len):
+    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size,
+        num_layers_lstm, dense_dim, output_dim, seq_len, use_cuda=True):
         super(BiMPMClassifier, self).__init__()
-        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
-        self.classifier_model = BiMPMAggregator(12, 1, seq_len, 2)
+        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast,
+            hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len, use_cuda)
+        self.classifier_model = BiMPMAggregator(12, 1, seq_len, 2, use_cuda)
 
     def forward(self, anno_in, code_in, ast_in):
         feature_tensor1, feature_tensor2 = self.bimpm_layer(anno_in, code_in, ast_in)
@@ -499,13 +509,16 @@ class BiMPMClassifier(nn.Module):
 
 
 class MPCTMClassifier(nn.Module):
-    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len):
+    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast,
+        hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len, use_cuda=True):
         super(MPCTMClassifier, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
-        self.classifier_model = MPCTMAggregator(12, 1, seq_len, 2)
+        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim,
+            2*output_dim, use_cuda)
+        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim, use_cuda)
+        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, use_cuda)
+        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast,
+            hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len, use_cuda)
+        self.classifier_model = MPCTMAggregator(12, 1, seq_len, 2, use_cuda)
 
     def forward(self, anno_in, code_in, ast_in):
         anno_vector = self.anno_model(anno_in)
