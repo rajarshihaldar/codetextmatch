@@ -1,11 +1,12 @@
-epochs: 20
+# Epochs, hidden_size are for both translate.py and train.py
+epochs: 10
 batch_size: 100
 # model can be 'ct', 'cat' or 'mpctm'
 model: 'mpctm'
 random_seed: 31415
 embedding_dim: 300
 learning_rate: 0.0005
-hidden_size: 200
+hidden_size: 256
 dense_dim: 200
 output_dim: 100
 num_layers_lstm: 2
@@ -18,3 +19,5 @@ use_parallel: False
 save_path: 'saved_models'
 # encoder can be 'LSTM' or 'Transformer'
 encoder: 'Transformer'
+# Direction of Translation: code2lang or lang2code
+translate_task: 'code2lang'
