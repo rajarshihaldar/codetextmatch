@@ -5,6 +5,7 @@ import numpy as np
 import time
 import json
 import yaml
+from tqdm import tqdm, trange
 import torch
 import torch.nn as nn
 import torch.utils.data
@@ -141,10 +142,12 @@ else:
 iter = 0
 sim_model.train()
 start_time = time.time()
-for epoch in range(num_epochs):
+loss_file = open('loss_file_mpctm.csv','w')
+for epoch in trange(num_epochs):
     epoch += 1
     batch_iter = 0
-    for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(train_loader):
+    loss_epoch = 0.0
+    for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(tqdm(train_loader)):
         sim_model.zero_grad()
         anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
         code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
@@ -168,8 +171,12 @@ for epoch in range(num_epochs):
         
         iter += 1
         batch_iter += 1
-        print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
+        loss_epoch += loss.item()
+        # print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
         # print(list(code_model.parameters())[1])
+    loss_epoch /= batch_iter
+    tqdm.write("Epoch: {}. Loss: {}".format(epoch, loss_epoch))
+    loss_file.write("{},{}\n".format(epoch, loss_epoch))
 
 print('Time taken to train: {} seconds'.format(time.time()-start_time))
 print("Saving Models")
