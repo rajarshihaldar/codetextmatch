@@ -185,28 +185,6 @@ def create_emb_layer(weights_matrix, non_trainable=False):
     return emb_layer, num_embeddings, embedding_dim
 
 
-
-
-
-class SimModel(nn.Module):
-    def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
-        weights_matrix_ast):
-        super(SimModel, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
-
-    def forward(self, anno_in, code_in, ast_in):
-        anno_vector = self.anno_model(anno_in)
-        code_vector = self.code_model(code_in)
-        ast_vector = self.ast_model(ast_in)
-        code_ast_vector = torch.cat((code_vector, ast_vector), dim = 1)
-        sim_score = 1.0-self.dist(anno_vector, code_ast_vector)
-        return sim_score, anno_vector, code_vector
-
-
-# sim_model = SimModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, weights_matrix_ast)
 sim_model = MPCTMClassifier(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len_code)
 
 if torch.cuda.is_available() and use_cuda:

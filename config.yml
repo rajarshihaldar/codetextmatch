@@ -1,15 +1,15 @@
 # Epochs, hidden_size are for both translate.py and train.py
-epochs: 10
-batch_size: 100
+epochs: 1
+batch_size: 64
 # model can be 'ct', 'cat' or 'mpctm'
 model: 'mpctm'
 random_seed: 31415
 embedding_dim: 300
 learning_rate: 0.0005
-hidden_size: 256
+hidden_size: 200
 dense_dim: 200
 output_dim: 100
-num_layers_lstm: 2
+num_layers_lstm: 1
 use_cuda: True
 use_softmax_classifier: False
 use_bin: False
@@ -18,6 +18,7 @@ use_adam: True
 use_parallel: False
 save_path: 'saved_models'
 # encoder can be 'LSTM' or 'Transformer'
-encoder: 'Transformer'
+encoder: 'LSTM'
+full_bimpm: False
 # Direction of Translation: code2lang or lang2code
 translate_task: 'code2lang'

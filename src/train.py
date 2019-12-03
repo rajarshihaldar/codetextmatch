@@ -5,6 +5,7 @@ import numpy as np
 import time
 import json
 import yaml
+from tqdm import tqdm, trange
 import torch
 import torch.nn as nn
 import torch.utils.data
@@ -125,18 +126,18 @@ weights_matrix_code = torch.from_numpy(weights_matrix_code)
 weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
 
 if model_type == 'mpctm':
-    sim_model = MPCTMClassifier(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, 
-        num_layers_lstm, dense_dim, output_dim, seq_len_code)
+    sim_model = torch.nn.DataParallel(MPCTMClassifier(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, 
+        num_layers_lstm, dense_dim, output_dim, seq_len_code)).cuda()
 elif model_type == 'ct':
     sim_model = CTModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code)
 elif model_type == 'cat':
     sim_model = CATModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, 
         weights_matrix_ast)
 
-if torch.cuda.is_available() and use_cuda:
-    sim_model.cuda()
-    if use_parallel:
-        sim_model = nn.DataParallel(sim_model)
+# if torch.cuda.is_available() and use_cuda:
+#     sim_model.cuda()
+#     if use_parallel:
+#         sim_model = nn.DataParallel(sim_model)
 
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                            batch_size=batch_size,
@@ -157,7 +158,7 @@ iter = 0
 sim_model.train()
 start_time = time.time()
 if model_type == 'ct':
-    for epoch in range(num_epochs):
+    for epoch in trange(num_epochs):
         epoch += 1
         batch_iter = 0
         for i, (code_sequence, anno_sequence, anno_sequence_neg) in enumerate(train_loader):
@@ -181,10 +182,10 @@ if model_type == 'ct':
             batch_iter += 1
             print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
         if epoch % 10 == 0:
-            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_{epoch}")
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_{epoch}")
 
 elif model_type == 'cat':
-    for epoch in range(num_epochs):
+    for epoch in trange(num_epochs):
         epoch += 1
         batch_iter = 0
         for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(train_loader):
@@ -209,13 +210,14 @@ elif model_type == 'cat':
             batch_iter += 1
             print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
         if epoch % 10 == 0:
-            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_{epoch}")
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_cat_{epoch}")
 
 elif model_type == 'mpctm':
-    for epoch in range(num_epochs):
+    for epoch in trange(num_epochs):
         epoch += 1
         batch_iter = 0
-        for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(train_loader):
+        loss_epoch = 0.0
+        for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(tqdm(train_loader)):
             sim_model.zero_grad()
             anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
             code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
@@ -239,7 +241,9 @@ elif model_type == 'mpctm':
             
             iter += 1
             batch_iter += 1
-            print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
+            loss_epoch += loss
+            tqdm.write("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
+        # tqdm.write("Epoch: {}. Loss: {}".format(epoch, batch_iter, loss_epoch))
         if epoch % 10 == 0:
             torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_{epoch}")
 

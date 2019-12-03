@@ -15,9 +15,7 @@ import yaml
 import torch
 import torch.nn as nn
 import torch.utils.data
-# import torchvision.transforms as transforms
-# import torchvision.datasets as dsets
-
+from models import CATModel
 
 train_dataset = pickle.load(open('../data/labelled_dataset_train.p', 'rb'))
 valid_dataset = pickle.load(open('../data/labelled_dataset_valid.p', 'rb'))
@@ -45,7 +43,8 @@ seq_len_code = 0
 hidden_size = cfg["hidden_size"]
 dense_dim = cfg["dense_dim"]
 output_dim = cfg["output_dim"]
-num_layers_lstm = cfg["num_layers_lstm"]
+# num_layers_lstm = cfg["num_layers_lstm"]
+num_layers_lstm = 2
 use_cuda = cfg["use_cuda"]
 batch_size = cfg["batch_size"]
 # n_iters = 4000
@@ -184,68 +183,21 @@ def create_emb_layer(weights_matrix, non_trainable=False):
     return emb_layer, num_embeddings, embedding_dim
 
 
-class LSTMModel(nn.Module):
-    def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim):
-        super(LSTMModel, self).__init__()
-        self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
-        self.hidden_size = hidden_size
-        if use_bidirectional:
-            self.num_layers = num_layers * 2
-        else:
-            self.num_layers = num_layers
-        self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers, batch_first=True, bidirectional=use_bidirectional)
-        self.fc = nn.Sequential(
-            nn.Linear(dense_dim*(int(use_bidirectional)+1), dense_dim),
-            nn.Dropout(0.2),
-            nn.ReLU(),
-            nn.Linear(dense_dim, output_dim),
-            nn.ReLU()
-        )
 
-    def forward(self, x):
-        if torch.cuda.is_available() and use_cuda:
-            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
-        else:
-            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-
-        # Initialize cell state
-        if torch.cuda.is_available() and use_cuda:
-            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda()
-        else:
-            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-
-        out, (hn, cn) = self.lstm(self.embedding(x), (h0, c0))
-        # out = self.fc(out[:, -1, :])
-        out, _ = torch.max(out, dim=1, keepdim=False, out=None)
-        out = self.fc(out)
-
-        return out
-
-
-class SimModel(nn.Module):
-    def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
-        weights_matrix_ast):
-        super(SimModel, self).__init__()
-        self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
-        self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.dist = nn.modules.distance.PairwiseDistance(p=1, eps=1e-10)
-
-    def forward(self, anno_in, code_in, ast_in):
-        anno_vector = self.anno_model(anno_in)
-        code_vector = self.code_model(code_in)
-        ast_vector = self.ast_model(ast_in)
-        code_ast_vector = torch.cat((code_vector, ast_vector), dim = 1)
-        sim_score = 1.0-self.dist(anno_vector, code_ast_vector)
-        return sim_score, anno_vector, code_vector
-
-
-sim_model = SimModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, weights_matrix_ast)
+sim_model = CATModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, 
+    weights_matrix_ast)
 
 if torch.cuda.is_available() and use_cuda:
     sim_model.cuda()
 
-sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_ast"))
+if cfg["encoder"] == 'LSTM':
+    print("Encoder Type: LSTM")
+    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_ast"))
+elif cfg["encoder"] == 'Transformer':
+    print("Encoder Type: Transformer")
+    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_ast_transformer"))
+
+test_dataset = test_dataset[:1000]
 
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                            batch_size=batch_size,
@@ -415,7 +367,7 @@ def eval_retrieval():
     r1 /= count
     r5 /= count
     r10 /= count
-    with open("../results/results_CAT.txt","w") as f:
+    with open("../results/results_CAT_small.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")

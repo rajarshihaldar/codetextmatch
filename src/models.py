@@ -256,6 +256,8 @@ class MPCTMAggregator(nn.Module):
         else:
             c0 = torch.zeros(self.num_layers, x1.size(0), self.hidden_dim)
             c1 = torch.zeros(self.num_layers, x2.size(0), self.hidden_dim)
+
+
         out1, (hn0, cn0) = self.lstm1(x1, (h0, c0))
         out2, (hn1, cn1) = self.lstm2(x2, (h1, c1))
         out1 = out1[:, -1, :]
@@ -276,6 +278,171 @@ class MPCTMAggregator(nn.Module):
         out = 1.0-self.dist(out1, out2)
         # out = cos(out1, out2)
         return out
+
+
+
+
+
+class ReducedBiMPMLayer(nn.Module):
+    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len):
+        super(ReducedBiMPMLayer, self).__init__()
+        self.multi_anno_model = LSTMModelMulti(weights_matrix_anno, 2*hidden_size, num_layers_lstm, dense_dim, 
+            2*output_dim)
+        self.multi_code_model = LSTMModelMulti(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.multi_ast_model = LSTMModelMulti(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
+        self.model= nn.ModuleList()
+        for i in range(8):
+            new_model = DenseModel(2*hidden_size, 2*hidden_size, 2*hidden_size)
+            self.model.append(new_model)
+        # self.aggregation_model = AggregationModel(12, 1, seq_len, 2)
+        self.cos = nn.CosineSimilarity(dim=2)
+        self.batch_size = batch_size
+
+
+    def full_matching(self, anno_forward, code_forward, anno_reverse, code_reverse, model1, model2, model3, model4):
+        # model1 = dense_model1
+        # model2 = dense_model2
+        # model3 = dense_model11
+        # model4 = dense_model12
+        
+        
+        # per_tensor = []
+        # rev_per_tensor = []
+        anno_vector_all = model1(anno_forward)
+        anno_vector_all_rev = model2(anno_reverse)
+
+        code_ast_vector = model3(code_forward[:,-1,:])
+        # code_ast_vector = torch.nn.functional.normalize(code_ast_vector, p=2, dim=1, eps=1e-12, out=None)
+        code_ast_vector_rev = model4(code_reverse[:,-1,:])
+        # code_ast_vector_rev = torch.nn.functional.normalize(code_ast_vector_rev, p=2, dim=1, eps=1e-12, out=None)
+
+        anno_vector_all = anno_vector_all.permute(1,0,2)
+        code_ast_vector = code_ast_vector.view(1,self.batch_size,400)
+        per_tensor = self.cos(code_ast_vector, anno_vector_all)
+        per_tensor = per_tensor.permute(1,0)
+        per_tensor = per_tensor.unsqueeze(2)
+
+        anno_vector_all_rev = anno_vector_all_rev.permute(1,0,2)
+        code_ast_vector_rev = code_ast_vector_rev.view(1,self.batch_size,400)
+        rev_per_tensor = self.cos(code_ast_vector_rev, anno_vector_all_rev)
+        rev_per_tensor = rev_per_tensor.permute(1,0)
+        rev_per_tensor = rev_per_tensor.unsqueeze(2)
+        
+        code_vector_all = model3(code_forward)
+        code_vector_all_rev =model4(code_reverse)
+        
+        anno_vector = model1(anno_forward[:,-1,:])
+        # anno_vector = torch.nn.functional.normalize(anno_vector, p=2, dim=1, eps=1e-12, out=None)
+        anno_vector_rev = model2(anno_reverse[:,-1,:])
+        # anno_vector_rev = torch.nn.functional.normalize(anno_vector_rev, p=2, dim=1, eps=1e-12, out=None)
+        # sim_score = 1.0-dist(anno_vector_rev, code_vector_all.permute(0,2,1))
+        
+        code_vector_all = code_vector_all.permute(1,0,2)
+        anno_vector = anno_vector.view(1, self.batch_size,400)
+        per_tensor2 = self.cos(anno_vector, code_vector_all)
+        per_tensor2 = per_tensor2.permute(1,0)
+        per_tensor2 = per_tensor2.unsqueeze(2)
+
+        code_vector_all_rev = code_vector_all_rev.permute(1,0,2)
+        anno_vector_rev = anno_vector_rev.view(1, self.batch_size, 400)
+        rev_per_tensor2 = self.cos(anno_vector_rev, code_vector_all_rev)
+        rev_per_tensor2 = rev_per_tensor2.permute(1,0)
+        rev_per_tensor2 = rev_per_tensor2.unsqueeze(2)
+        
+        full_match_tensor1 = torch.cat((per_tensor, rev_per_tensor), dim = 2)
+        full_match_tensor2 = torch.cat((per_tensor2, rev_per_tensor2), dim = 2)
+        # full_match_tensor = torch.cat((full_match_tensor1,full_match_tensor2), dim = 2)
+
+        return full_match_tensor1, full_match_tensor2
+
+
+    def div_with_small_value(self, n, d, eps=1e-8):
+        # too small values are replaced by 1e-8 to prevent it from exploding.
+        d = d * (d > eps).float() + eps * (d <= eps).float()
+        return n / d
+
+    
+        
+
+
+    def attention(self, v1, v2):
+        """
+        :param v1: (batch, seq_len1, hidden_size)
+        :param v2: (batch, seq_len2, hidden_size)
+        :return: (batch, seq_len1, seq_len2)
+        """
+
+        # (batch, seq_len1, 1)
+        v1_norm = v1.norm(p=2, dim=2, keepdim=True)
+        # (batch, 1, seq_len2)
+        v2_norm = v2.norm(p=2, dim=2, keepdim=True).permute(0, 2, 1)
+
+        # (batch, seq_len1, seq_len2)
+        a = torch.bmm(v1, v2.permute(0, 2, 1))
+        d = v1_norm * v2_norm
+
+        return self.div_with_small_value(a, d)
+
+
+    def attentive_matching(self, anno_forward, code_forward, anno_reverse, code_reverse):
+        atf = self.model[4](anno_forward)
+        atb = self.model[5](anno_reverse)
+        ctf = self.model[6](code_forward)
+        ctb = self.model[7](code_reverse)
+
+        att_fw = self.attention(atf, ctf)
+        att_bw = self.attention(atb, ctb)
+        
+
+        att_h_fw = ctf.unsqueeze(1) * att_fw.unsqueeze(3)
+        att_h_bw = ctb.unsqueeze(1) * att_bw.unsqueeze(3)
+
+        att_p_fw = atf.unsqueeze(2) * att_fw.unsqueeze(3)
+        att_p_bw = atb.unsqueeze(2) * att_bw.unsqueeze(3)
+
+        att_mean_h_fw = self.div_with_small_value(att_h_fw.sum(dim=2), att_fw.sum(dim=2, keepdim=True))
+        att_mean_h_bw = self.div_with_small_value(att_h_bw.sum(dim=2), att_bw.sum(dim=2, keepdim=True))
+
+        att_mean_p_fw = self.div_with_small_value(att_p_fw.sum(dim=1), att_fw.sum(dim=1, keepdim=True).permute(0, 2, 1))
+        att_mean_p_bw = self.div_with_small_value(att_p_bw.sum(dim=1), att_bw.sum(dim=1, keepdim=True).permute(0, 2, 1))
+
+        att1 = self.full_matching(atf, att_mean_h_fw, atb, att_mean_h_bw, self.model[4], self.model[5], 
+            self.model[6], self.model[7])
+        att1 = torch.cat((att1[0],att1[1]), dim=2)
+        att2 = self.full_matching(ctf, att_mean_p_fw, ctb, att_mean_p_bw, self.model[4], self.model[5], 
+            self.model[6], self.model[7])
+        att2 = torch.cat((att2[0],att2[1]), dim=2)
+
+        # attentive_tensor = torch.cat((att1, att2), dim=2)
+        return att1, att2
+
+
+    def forward(self, anno_in, code_in, ast_in):
+        self.batch_size = anno_in.size()[0]
+        multi_anno_vector = self.multi_anno_model(anno_in)
+        multi_code_vector = self.multi_code_model(code_in)
+        multi_ast_vector = self.multi_ast_model(ast_in)
+        multi_code_ast_vector = torch.cat((multi_code_vector, multi_ast_vector), dim = 2)
+        anno_forward, anno_reverse = torch.split(multi_anno_vector,2*hidden_size, dim=2)
+        code_forward,code_reverse = torch.split(multi_code_ast_vector,2*hidden_size, dim=2)
+        full_match_tensor1, full_match_tensor2 = self.full_matching(anno_forward, code_forward, anno_reverse, 
+            code_reverse, self.model[0], self.model[1], self.model[2], self.model[3])
+
+
+        attentive_tensor1, attentive_tensor2 = self.attentive_matching(anno_forward, code_forward, anno_reverse, 
+            code_reverse)
+
+        
+        feature_tensor1 = torch.cat((full_match_tensor1, attentive_tensor1), dim = 2)
+
+        feature_tensor2 = torch.cat((full_match_tensor2, attentive_tensor2), dim = 2)
+
+        return feature_tensor1, feature_tensor2
+
+
+
+
+
 
 
 class BiMPMLayer(nn.Module):
@@ -523,9 +690,11 @@ class BiMPMLayer(nn.Module):
         return feature_tensor1, feature_tensor2
 
 class BiMPMClassifier(nn.Module):
-    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len):
+    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, 
+        num_layers_lstm, dense_dim, output_dim, seq_len):
         super(BiMPMClassifier, self).__init__()
-        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
+        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, 
+            hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
         self.classifier_model = BiMPMAggregator(12, 1, seq_len, 2)
 
     def forward(self, anno_in, code_in, ast_in):
@@ -535,7 +704,8 @@ class BiMPMClassifier(nn.Module):
 
 
 class MPCTMClassifier(nn.Module):
-    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len):
+    def __init__(self, batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, 
+        num_layers_lstm, dense_dim, output_dim, seq_len):
         super(MPCTMClassifier, self).__init__()
         if cfg["encoder"]=='Transformer':
             self.anno_model = SelfAttnModel(weights_matrix_anno, hidden_size, dense_dim, 2*output_dim)
@@ -545,8 +715,14 @@ class MPCTMClassifier(nn.Module):
             self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
             self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
             self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
-        self.classifier_model = MPCTMAggregator(12, 1, seq_len, 2)
+        if cfg["full_bimpm"]:
+            self.bimpm_layer = BiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, 
+                hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
+            self.classifier_model = MPCTMAggregator(12, 1, seq_len, 2)
+        else:
+            self.bimpm_layer = ReducedBiMPMLayer(batch_size, weights_matrix_anno, weights_matrix_code, 
+                weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim, seq_len)
+            self.classifier_model = MPCTMAggregator(6, 1, seq_len, 2)
 
     def forward(self, anno_in, code_in, ast_in):
         anno_vector = self.anno_model(anno_in)
