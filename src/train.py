@@ -246,13 +246,12 @@ elif model_type == 'mpctm':
             iter += 1
             batch_iter += 1
             print("Epoch: {}. Iteration: {}. Loss: {}".format(epoch, batch_iter, loss))
-        if epoch % 5 == 0:
-            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_{epoch}")
+        torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_reduced_{epoch}")
 
 print('Time taken to train: {} seconds'.format(time.time()-start_time))
 print("Saving Models")
 if model_type == 'mpctm':
-    torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm")
+    torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_reduced")
 elif model_type == 'ct':
     torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ct")
 elif model_type == 'cat':
