@@ -5,21 +5,27 @@ import numpy as np
 import time
 import json
 import yaml
+from tqdm import trange, tqdm
 import torch
 import torch.nn as nn
 import torch.utils.data
+from operator import itemgetter
 from models import MPCTMClassifier, CATModel, CTModel
 
 with open("../config.yml", 'r') as config_file:
     cfg = yaml.load(config_file, Loader=yaml.FullLoader)
 
-train_dataset = pickle.load(open('../data/labelled_dataset_train.p', 'rb'))
-valid_dataset = pickle.load(open('../data/labelled_dataset_valid.p', 'rb'))
-test_dataset = pickle.load(open('../data/labelled_dataset_test.p', 'rb'))
+if cfg["dataset"] == "codesearchnet":
+    test_dataset = pickle.load(open('../data/labelled_dataset_test.p', 'rb'))
+    codes = pickle.load(open('../data/codes','rb'))
+    annos = pickle.load(open('../data/annos','rb'))
+    asts = pickle.load(open('../data/asts','rb'))
+elif cfg["dataset"] == 'conala':
+    test_dataset = pickle.load(open('../../data_conala/conala_labelled_dataset_test.pkl', 'rb'))
+    codes = pickle.load(open('../../data_conala/codes','rb'))
+    annos = pickle.load(open('../../data_conala/annos','rb'))
+    asts = pickle.load(open('../../data_conala/asts','rb'))
 
-codes = pickle.load(open('../data/codes','rb'))
-annos = pickle.load(open('../data/annos','rb'))
-asts = pickle.load(open('../data/asts','rb'))
 
 trainDF = {}
 trainDF['code'] = codes
@@ -50,11 +56,18 @@ use_adam = cfg["use_adam"]
 use_parallel = cfg["use_parallel"]
 save_path = cfg["save_path"]
 if use_cuda:
-    device_id = 0
+    device_id = cfg["device_id"]
     torch.cuda.set_device(device_id)
 
-print("Number of epochs = ", num_epochs)
-print("Batch size = ", batch_size)
+if cfg["dataset"]=='conala':
+    save_path = save_path+"_conala"
+elif cfg["dataset"]=='codesearchnet':
+    pass
+else:
+    print("Wrong Dataset Entered")
+    exit()
+print(f"Model = {cfg['model']}")
+
 
 # Loading word embeddings
 if use_bin:
@@ -105,27 +118,39 @@ def create_embeddings(fname, embed_type):
     return word_index, embedding_matrix
 
 # Create word-index mapping
-word_to_ix_anno = {}
-word_to_ix_code = {}
+load_var = False
 seq_len_code = seq_len_anno = seq_len_ast = 300
-word_to_ix_anno, weights_matrix_anno = create_embeddings('../saved_models/anno_model.vec', 'anno')
-word_to_ix_code, weights_matrix_code = create_embeddings('../saved_models/code_model.vec', 'code')
-word_to_ix_ast, weights_matrix_ast = create_embeddings('../saved_models/ast_model.vec', 'ast')
-weights_matrix_anno = torch.from_numpy(weights_matrix_anno)
-weights_matrix_code = torch.from_numpy(weights_matrix_code)
-weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
+if cfg["dataset"] == 'conala':
+    word_to_ix_anno, weights_matrix_anno = create_embeddings(f'../../data_conala/anno_model.vec', 'anno')
+    word_to_ix_code, weights_matrix_code = create_embeddings(f'../../data_conala/code_model.vec', 'code')
+    word_to_ix_ast, weights_matrix_ast = create_embeddings(f'../../data_conala/ast_model.vec', 'ast')
+    weights_matrix_anno = torch.from_numpy(weights_matrix_anno)
+    weights_matrix_code = torch.from_numpy(weights_matrix_code)
+    weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
+elif cfg["dataset"] == 'codesearchnet':
+    if not load_var:
+        word_to_ix_anno, weights_matrix_anno = create_embeddings(f'../{save_path}/anno_model.vec', 'anno')
+        word_to_ix_code, weights_matrix_code = create_embeddings(f'../{save_path}/code_model.vec', 'code')
+        word_to_ix_ast, weights_matrix_ast = create_embeddings(f'../{save_path}/ast_model.vec', 'ast')
+        weights_matrix_anno = torch.from_numpy(weights_matrix_anno)
+        weights_matrix_code = torch.from_numpy(weights_matrix_code)
+        weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
+    else:
+        word_to_ix_anno, weights_matrix_anno = pickle.load(open("../variables/anno_var",'rb'))
+        word_to_ix_code, weights_matrix_code = pickle.load(open("../variables/code_var",'rb'))
+        word_to_ix_ast, weights_matrix_ast = pickle.load(open("../variables/ast_var",'rb'))
 
 if model_type == 'mpctm':
     sim_model = MPCTMClassifier(batch_size, weights_matrix_anno, weights_matrix_code, weights_matrix_ast, hidden_size, 
         num_layers_lstm, dense_dim, output_dim, seq_len_code)
     if torch.cuda.is_available() and use_cuda:
         sim_model.cuda()
-    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_mpctm"))
+    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_mpctm_reduced"))
 elif model_type == 'ct':
     sim_model = CTModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code)
     if torch.cuda.is_available() and use_cuda:
         sim_model.cuda()
-    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model"))
+    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_ct"))
 elif model_type == 'cat':
     sim_model = CATModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code, 
         weights_matrix_ast)
@@ -145,7 +170,7 @@ def eval_ct():
     r5 = 0
     r10 = 0
 
-    # outp = open("../output_rank_torch.txt","w")
+    rank_list = []
     sim_model.eval()
     with torch.no_grad():
         for i, (code_sequence, ast_sequence, anno_sequence, distractor_list) in enumerate(tqdm(ret_loader)):
@@ -156,9 +181,9 @@ def eval_ct():
             codebase.append(code_sequence[0])
             count_dist = 0
             for code_dist, ast_dist in distractor_list:
-                count_dist += 1
-                if count_dist >= 99:
-                    break
+                # count_dist += 1
+                # if count_dist >= 99:
+                #     break
                 codebase.append(code_dist[0])
             if torch.cuda.is_available() and use_cuda:
                 anno_in = anno_in.cuda()
@@ -193,6 +218,7 @@ def eval_ct():
                 continue
                 # print("No Rank")
                 # exit()
+            rank_list.append([anno_sequence, code_sequence, rank])
             mrr += 1.0/(rank)
             if rank == 1:
                 r1 += 1
@@ -215,7 +241,9 @@ def eval_ct():
     r1 /= count
     r5 /= count
     r10 /= count
-    with open("../results/results_CT.txt","w") as f:
+    df = pandas.DataFrame(rank_list, columns=['Query','Gold', 'Rank'])
+    df.to_pickle(f"../results/results_CT_{cfg['dataset']}.pkl")
+    with open(f"../results/results_CT_{cfg['dataset']}.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")
@@ -232,7 +260,7 @@ def eval_cat():
     r5 = 0
     r10 = 0
 
-    # outp = open("results_rank_torch.txt","w")
+    rank_list = []
     sim_model.eval()
     with torch.no_grad():
         for i, (code_sequence, ast_sequence, anno_sequence, distractor_list) in enumerate(tqdm(ret_loader)):
@@ -275,6 +303,7 @@ def eval_cat():
                 continue
                 # print("No Rank")
                 # exit()
+            rank_list.append([anno_sequence, code_sequence, rank])
             mrr += 1.0/(rank)
             if rank == 1:
                 r1 += 1
@@ -297,7 +326,9 @@ def eval_cat():
     r1 /= count
     r5 /= count
     r10 /= count
-    with open("../results/results_CAT.txt","w") as f:
+    df = pandas.DataFrame(rank_list, columns=['Query','Gold', 'Rank'])
+    df.to_pickle(f"../results/results_CAT_{cfg['dataset']}.pkl")
+    with open(f"../results/results_CAT_{cfg['dataset']}.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")
@@ -314,7 +345,7 @@ def eval_mpctm():
     r5 = 0
     r10 = 0
 
-    # outp = open("results_rank_torch.txt","w")
+    rank_list = []
     sim_model.eval()
     with torch.no_grad():
         for i, (code_sequence, ast_sequence, anno_sequence, distractor_list) in enumerate(tqdm(ret_loader)):
@@ -326,8 +357,8 @@ def eval_mpctm():
             count_dist = 0
             for code_dist, ast_dist in distractor_list:
                 count_dist += 1
-                if count_dist >= 99:
-                    break
+                # if count_dist >= 99:
+                #     break
                 codebase.append((code_dist[0], ast_dist[0]))
             if torch.cuda.is_available() and use_cuda:
                 anno_in = anno_in.cuda()
@@ -365,6 +396,7 @@ def eval_mpctm():
                 continue
                 # print("No Rank")
                 # exit()
+            rank_list.append([anno_sequence, code_sequence, rank])
             mrr += 1.0/(rank)
             if rank == 1:
                 r1 += 1
@@ -387,7 +419,9 @@ def eval_mpctm():
     r1 /= count
     r5 /= count
     r10 /= count
-    with open("../results/results_MPTCTM.txt","w") as f:
+    df = pandas.DataFrame(rank_list, columns=['Query','Gold', 'Rank'])
+    df.to_pickle(f"../results/results_MPCTM_{cfg['dataset']}.pkl")
+    with open(f"../results/results_MPTCTM_{cfg['dataset']}.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")

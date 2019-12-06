@@ -1,8 +1,9 @@
 # Epochs, hidden_size are for both translate.py and train.py
-epochs: 1
-batch_size: 64
+epochs: 140
+batch_size: 200
 # model can be 'ct', 'cat' or 'mpctm'
-model: 'mpctm'
+model: 'cat'
+device_id: 1
 random_seed: 31415
 embedding_dim: 300
 learning_rate: 0.0005
@@ -17,8 +18,12 @@ use_bidirectional: True
 use_adam: True
 use_parallel: False
 save_path: 'saved_models'
+# dataset can be "conala" or "codesearchnet"
+dataset: 'conala'
 # encoder can be 'LSTM' or 'Transformer'
 encoder: 'LSTM'
-full_bimpm: False
+full_bimpm: True
+save_every: 10
+negative_examples: 5
 # Direction of Translation: code2lang or lang2code
 translate_task: 'code2lang'

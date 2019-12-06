@@ -43,8 +43,7 @@ seq_len_code = 0
 hidden_size = cfg["hidden_size"]
 dense_dim = cfg["dense_dim"]
 output_dim = cfg["output_dim"]
-# num_layers_lstm = cfg["num_layers_lstm"]
-num_layers_lstm = 2
+num_layers_lstm = cfg["num_layers_lstm"]
 use_cuda = cfg["use_cuda"]
 batch_size = cfg["batch_size"]
 # n_iters = 4000
@@ -123,55 +122,21 @@ def create_embeddings(fname, embed_type):
 
 # Create word-index mapping
 
+seq_len_code = seq_len_anno = seq_len_ast = 300
 
-word_to_ix_anno = {}
-word_to_ix_code = {}
+load_var = True
 
-if use_bin:
-    count = 0
-    count1 = 0
-    for code, anno, lab in dataset:
-        anno_list = anno.split()
-        sent_length_anno = len(anno_list)
-        count += 1
-        if sent_length_anno > seq_len_anno:
-            seq_len_anno = sent_length_anno
-        for word in anno_list:
-            if word not in word_to_ix_anno:
-                word_to_ix_anno[word] = len(word_to_ix_anno) + 1
-        code_list = code.split()
-        sent_length_code = len(code_list)
-        if sent_length_code > seq_len_code:
-            seq_len_code = sent_length_code
-        if sent_length_code > 40:
-            count1 += 1
-        for word in code_list:
-            if word not in word_to_ix_code:
-                word_to_ix_code[word] = len(word_to_ix_code) + 1
-
-    seq_len_code = 40
-
-    matrix_len = len(word_to_ix_anno) + 1  # +1 because of padding
-    weights_matrix_anno = np.zeros((matrix_len, embedding_dim))
-
-    for word in word_to_ix_anno:
-        weights_matrix_anno[word_to_ix_anno[word]] = ft_anno_vec.get_word_vector(word)
-
-    matrix_len = len(word_to_ix_code) + 1  # +1 because of padding
-    weights_matrix_code = np.zeros((matrix_len, embedding_dim))
-
-    for word in word_to_ix_code:
-        weights_matrix_code[word_to_ix_code[word]] = ft_code_vec.get_word_vector(word)
-
-else:
-    seq_len_code = seq_len_anno = seq_len_ast = 300
+if not load_var:
     word_to_ix_anno, weights_matrix_anno = create_embeddings('../saved_models/anno_model.vec', 'anno')
     word_to_ix_code, weights_matrix_code = create_embeddings('../saved_models/code_model.vec', 'code')
     word_to_ix_ast, weights_matrix_ast = create_embeddings('../saved_models/ast_model.vec', 'ast')
-
-weights_matrix_anno = torch.from_numpy(weights_matrix_anno)
-weights_matrix_code = torch.from_numpy(weights_matrix_code)
-weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
+    weights_matrix_anno = torch.from_numpy(weights_matrix_anno)
+    weights_matrix_code = torch.from_numpy(weights_matrix_code)
+    weights_matrix_ast = torch.from_numpy(weights_matrix_ast)
+else:
+    word_to_ix_anno, weights_matrix_anno = pickle.load(open("../variables/anno_var",'rb'))
+    word_to_ix_code, weights_matrix_code = pickle.load(open("../variables/code_var",'rb'))
+    word_to_ix_ast, weights_matrix_ast = pickle.load(open("../variables/ast_var",'rb'))
 
 def create_emb_layer(weights_matrix, non_trainable=False):
     num_embeddings, embedding_dim = weights_matrix.size()
@@ -192,7 +157,7 @@ if torch.cuda.is_available() and use_cuda:
 
 if cfg["encoder"] == 'LSTM':
     print("Encoder Type: LSTM")
-    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_ast"))
+    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_cat"))
 elif cfg["encoder"] == 'Transformer':
     print("Encoder Type: Transformer")
     sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_ast_transformer"))
@@ -306,8 +271,8 @@ def eval_retrieval():
             count_dist = 0
             for code_dist, ast_dist in distractor_list:
                 count_dist += 1
-                # if count_dist >= 99:
-                #     break
+                if count_dist >= 99:
+                    break
                 codebase.append((code_dist[0], ast_dist[0]))
             if torch.cuda.is_available() and use_cuda:
                 anno_in = anno_in.cuda()
@@ -367,7 +332,7 @@ def eval_retrieval():
     r1 /= count
     r5 /= count
     r10 /= count
-    with open("../results/results_CAT_small.txt","w") as f:
+    with open("../results/results_CAT_1layer_lstm.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")
