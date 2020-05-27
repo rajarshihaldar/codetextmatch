@@ -107,7 +107,7 @@ class CTModel(nn.Module):
         anno_vector = self.anno_model(anno_in)
         code_vector = self.code_model(code_in)
         sim_score = 1.0-self.dist(anno_vector, code_vector)
-        return sim_score, anno_vector, code_vector
+        return sim_score
 
 class CATModel(nn.Module):
     def __init__(self, weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code,
@@ -129,7 +129,7 @@ class CATModel(nn.Module):
         ast_vector = self.ast_model(ast_in)
         code_ast_vector = torch.cat((code_vector, ast_vector), dim = 1)
         sim_score = 1.0-self.dist(anno_vector, code_ast_vector)
-        return sim_score, anno_vector, code_vector
+        return sim_score
 
 class LSTMModelMulti(nn.Module):
     def __init__(self, weights_matrix, hidden_size, num_layers, dense_dim, output_dim):
@@ -192,6 +192,7 @@ class BiMPMAggregator(nn.Module):
         self.fc2 = nn.Linear(self.hidden_dim*2, self.output_dim) 
         # Non-linearity 1
         self.relu1 = nn.ReLU()
+        self.dist = nn.modules.distance.PairwiseDistance(p=2, eps=1e-10)
         # Linear function 4 (readout): 100 --> 10
         # self.fc2 = nn.Linear(hidden_dim, output_dim)  
     
@@ -212,15 +213,21 @@ class BiMPMAggregator(nn.Module):
         out2, (hn1, cn1) = self.lstm2(x2, (h1, c1))
         out1 = out1[:, -1, :]
         out2 = out2[:, -1, :]
-        
-        # Linear function 1
-        out = torch.cat((out1,out2), dim = 1)
-        out = self.fc1(out)
-        # Non-linearity 1
-        out = self.relu1(out)
-        # Linear function 2
-        out = self.fc2(out)
+
+        out1 = out1.norm(p=2, dim=1, keepdim=True)
+        out2 = out2.norm(p=2, dim=1, keepdim=True)
+        out = 1.0-self.dist(out1, out2)
+        # out = cos(out1, out2)
         return out
+        
+        # # Linear function 1
+        # out = torch.cat((out1,out2), dim = 1)
+        # out = self.fc1(out)
+        # # Non-linearity 1
+        # out = self.relu1(out)
+        # # Linear function 2
+        # out = self.fc2(out)
+        # return out
 
 
 class MPCTMAggregator(nn.Module):
@@ -481,6 +488,7 @@ class BiMPMLayer(nn.Module):
         anno_vector_all = anno_vector_all.permute(1,0,2)
         code_ast_vector = code_ast_vector.view(1,self.batch_size,400)
         per_tensor = self.cos(code_ast_vector, anno_vector_all)
+
         per_tensor = per_tensor.permute(1,0)
         per_tensor = per_tensor.unsqueeze(2)
 
@@ -513,6 +521,7 @@ class BiMPMLayer(nn.Module):
         
         full_match_tensor1 = torch.cat((per_tensor, rev_per_tensor), dim = 2)
         full_match_tensor2 = torch.cat((per_tensor2, rev_per_tensor2), dim = 2)
+
         # full_match_tensor = torch.cat((full_match_tensor1,full_match_tensor2), dim = 2)
 
         return full_match_tensor1, full_match_tensor2
@@ -699,7 +708,7 @@ class BiMPMClassifier(nn.Module):
 
     def forward(self, anno_in, code_in, ast_in):
         feature_tensor1, feature_tensor2 = self.bimpm_layer(anno_in, code_in, ast_in)
-        outputs = classifier_model(feature_tensor1, feature_tensor2)
+        outputs = self.classifier_model(feature_tensor1, feature_tensor2)
         return outputs
 
 

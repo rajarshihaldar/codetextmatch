@@ -1,6 +1,7 @@
 from sklearn import model_selection
 import pandas
 import pickle
+import random
 import numpy as np
 import time
 import json
@@ -10,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.utils.data
 from keras.preprocessing import text, sequence
-from models import MPCTMClassifier, CATModel, CTModel
+from models import MPCTMClassifier, CATModel, CTModel, BiMPMClassifier
 
 with open("../config.yml", 'r') as config_file:
     cfg = yaml.load(config_file, Loader=yaml.FullLoader)
@@ -42,6 +43,19 @@ elif cfg["dataset"] == 'conala':
     codes = pickle.load(open('../../data_conala/codes','rb'))
     annos = pickle.load(open('../../data_conala/annos','rb'))
     asts = pickle.load(open('../../data_conala/asts','rb'))
+    if cfg["model"] == 'ct':
+        train_dataset = list(zip(codes_train, annos_train, annos2_train))
+        test_dataset = list(zip(codes_test, annos_test, annos2_test))
+
+elif cfg["dataset"] == 'cs105':
+    train_dataset = pickle.load(open('../../data_105/cs105_labelled_dataset_train.pkl', 'rb'))
+    test_dataset = pickle.load(open('../../data_105/cs105_labelled_dataset_test.pkl', 'rb'))
+    
+    codes_train, asts_train, annos_train, annos2_train = zip(*train_dataset)
+    codes_test, asts_test, annos_test, annos2_test = zip(*test_dataset)
+    codes = pickle.load(open('../../data_105/codes','rb'))
+    annos = pickle.load(open('../../data_105/annos','rb'))
+    asts = pickle.load(open('../../data_105/asts','rb'))
     if cfg["model"] == 'ct':
         train_dataset = list(zip(codes_train, annos_train, annos2_train))
         test_dataset = list(zip(codes_test, annos_test, annos2_test))
@@ -84,6 +98,8 @@ if cfg["dataset"]=='conala':
     save_path = save_path+"_conala"
 elif cfg["dataset"]=='codesearchnet':
     pass
+elif cfg["dataset"]=='cs105':
+    save_path = save_path + "_cs105"
 else:
     print("Wrong Dataset Entered")
     exit()
@@ -97,12 +113,11 @@ print(f"Model = {model_type.upper()}")
 
 def prepare_sequence(seq, seq_len, to_ix):
     idxs_list = []
-    
     for seq_elem in seq:
         idxs = []
         for w in seq_elem.split():
             try:
-                idxs.append(to_ix[w])
+                idxs.append(to_ix.get(w, 0))
             except KeyError:
                 continue
         idxs.reverse()
@@ -141,7 +156,7 @@ word_to_ix_code = {}
 seq_len_code = seq_len_anno = seq_len_ast = 300
 load_var = False
 
-if cfg["dataset"] == 'conala':
+if cfg["dataset"] == 'conala' or cfg["dataset"] == 'cs105':
     word_to_ix_anno, weights_matrix_anno = create_embeddings(f'../../data_conala/anno_model.vec', 'anno')
     word_to_ix_code, weights_matrix_code = create_embeddings(f'../../data_conala/code_model.vec', 'code')
     word_to_ix_ast, weights_matrix_ast = create_embeddings(f'../../data_conala/ast_model.vec', 'ast')
@@ -191,8 +206,9 @@ else:
     
 # Training
 iter = 0
+best_loss = 10000.0
 sim_model.train()
-loss_file = open(f"losses/loss_file_{model_type}.csv",'w')
+loss_file = open(f"losses/loss_file_{model_type}_{output_dim}.csv",'w')
 start_time = time.time()
 if model_type == 'ct':
     for epoch in trange(num_epochs):
@@ -200,30 +216,52 @@ if model_type == 'ct':
         batch_iter = 0
         loss_epoch = 0.0
         for i, (code_sequence, anno_sequence, anno_sequence_neg) in enumerate(tqdm(train_loader)):
-            sim_model.zero_grad()
+            # sim_model.zero_grad()
+            anno_neg_batch = []
+            for neg_id in range(cfg["negative_examples"]):
+                anno_neg_list = []
+                for batch_id in range(len(anno_sequence)):
+                    code2, anno2, count2 = random.choice(train_dataset)
+                    anno_neg_list.append(anno2)
+                anno_neg_batch.append(prepare_sequence(anno_neg_list, seq_len_anno, word_to_ix_anno))
+            anno_neg_batch = torch.stack(anno_neg_batch)
             anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
             code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
-            anno_in_neg = prepare_sequence(anno_sequence_neg, seq_len_anno, word_to_ix_anno)
-            if torch.cuda.is_available() and use_cuda:
-                sim_score, _, _ = sim_model(anno_in.cuda(), code_in.cuda())
-                sim_score_neg, _, _ = sim_model(anno_in_neg.cuda(), code_in.cuda())
-            else:
-                sim_score, _, _ = sim_model(anno_in, code_in)
-                sim_score_neg, _, _ = sim_model(anno_in_neg, code_in)
+            # anno_in_neg = prepare_sequence(anno_sequence_neg, seq_len_anno, word_to_ix_anno)
             
-            loss =  0.05 - sim_score + sim_score_neg
-            loss[loss<0] = 0.0
-            loss = torch.sum(loss)
-            loss.backward()
-            opt.step()
+            if torch.cuda.is_available() and use_cuda:
+                for neg_id in range(cfg["negative_examples"]):
+                    sim_model.zero_grad()
+                    sim_score = sim_model(anno_in.cuda(), code_in.cuda())
+                    sim_score_neg = sim_model(anno_neg_batch[neg_id].cuda(), code_in.cuda())
+                    loss =  0.05 - sim_score + sim_score_neg
+                    loss[loss<0] = 0.0
+                    loss = torch.sum(loss)
+                    loss.backward()
+                    opt.step()
+                    loss_epoch += loss
+                # sim_score_neg, _, _ = sim_model(anno_in_neg.cuda(), code_in.cuda())
+            else:
+                sim_score = sim_model(anno_in, code_in)
+                sim_score_neg = sim_model(anno_in_neg, code_in)
+            
+            # loss =  0.05 - sim_score + sim_score_neg
+            # loss[loss<0] = 0.0
+            # loss = torch.sum(loss)
+            # loss.backward()
+            # opt.step()
             iter += 1
             batch_iter += 1
-            loss_epoch += loss
+            # loss_epoch += loss
         loss_epoch /= batch_iter
         tqdm.write(f"Epoch: {epoch}. Loss: {loss_epoch}. Model: {model_type}")
         loss_file.write(f"{epoch},{loss_epoch}\n")
+        if loss_epoch < best_loss:
+            best_loss = loss_epoch
+            # torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ct_best_2layers")
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ct_final_{output_dim}")
         if (epoch) % cfg["save_every"] == 0:
-            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_cat_{(epoch)}")
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ct_{(epoch)}_{output_dim}")
 
 elif model_type == 'cat':
     for epoch in trange(num_epochs):
@@ -231,31 +269,69 @@ elif model_type == 'cat':
         batch_iter = 0
         loss_epoch = 0.0
         for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(tqdm(train_loader)):
+            if cfg["dataset"] == "cs105":
+                labels = anno_sequence_neg
+            else:
+                anno_neg_batch = []
+                for neg_id in range(cfg["negative_examples"]):
+                    anno_neg_list = []
+                    for batch_id in range(len(anno_sequence)):
+                        code2, ast2, anno2, count2 = random.choice(train_dataset)
+                        anno_neg_list.append(anno2)
+                    anno_neg_batch.append(prepare_sequence(anno_neg_list, seq_len_anno, word_to_ix_anno))
+                anno_neg_batch = torch.stack(anno_neg_batch)
+            
             sim_model.zero_grad()
             anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
             code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
             ast_in = prepare_sequence(ast_sequence, seq_len_code, word_to_ix_ast)
-            anno_in_neg = prepare_sequence(anno_sequence_neg, seq_len_anno, word_to_ix_anno)
-            if torch.cuda.is_available() and use_cuda:
-                sim_score, _, _ = sim_model(anno_in.cuda(), code_in.cuda(), ast_in.cuda())
-                sim_score_neg, _, _ = sim_model(anno_in_neg.cuda(), code_in.cuda(), ast_in.cuda())
-            else:
-                sim_score, _, _ = sim_model(anno_in, code_in, ast_in)
-                sim_score_neg, _, _ = sim_model(anno_in_neg, code_in, ast_in)
+            # anno_in_neg = prepare_sequence(anno_sequence_neg, seq_len_anno, word_to_ix_anno)
             
-            loss =  0.05 - sim_score + sim_score_neg
-            loss[loss<0] = 0.0
-            loss = torch.sum(loss)
-            loss.backward()
-            opt.step()
+            if torch.cuda.is_available() and use_cuda:
+                if cfg["dataset"] == "cs105":
+                    sim_model.zero_grad()
+                    sim_score = sim_model(anno_in.cuda(), code_in.cuda(), ast_in.cuda())
+                    labels = labels.float().cuda()
+                    loss = criterion(sim_score, labels)
+                    loss.backward()
+                    opt.step()
+                    loss_epoch += loss
+                else:
+                    for neg_id in range(cfg["negative_examples"]):
+                        sim_model.zero_grad()
+                        sim_score = sim_model(anno_in.cuda(), code_in.cuda(), ast_in.cuda())
+                        sim_score_neg = sim_model(anno_neg_batch[neg_id].cuda(), code_in.cuda(), ast_in.cuda())
+                        loss =  0.05 - sim_score + sim_score_neg
+                        loss[loss<0] = 0.0
+                        loss = torch.sum(loss)
+                        loss.backward()
+                        opt.step()
+                        loss_epoch += loss
+                # sim_score_neg, _, _ = sim_model(anno_in_neg.cuda(), code_in.cuda(), ast_in.cuda())
+            else:
+                sim_score = sim_model(anno_in, code_in, ast_in)
+                sim_score_neg = sim_model(anno_in_neg, code_in, ast_in)
+            
+            # loss = 0.0
+            # for loss_id in range(cfg["negative_examples"]):
+            #     loss +=  0.1 - sim_score + sim_score_neg_list[loss_id]
+            # loss =  0.05 - sim_score + sim_score_neg
+            # loss[loss<0] = 0.0
+            # loss = torch.sum(loss)
+            # loss.backward()
+            # opt.step()
             iter += 1
             batch_iter += 1
-            loss_epoch += loss
+            # loss_epoch += loss
         loss_epoch /= batch_iter
         tqdm.write(f"Epoch: {epoch}. Loss: {loss_epoch}. Model: {model_type}")
         loss_file.write(f"{epoch},{loss_epoch}\n")
+        if loss_epoch < best_loss:
+            best_loss = loss_epoch
+            # torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_cat_best_2layers")
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_cat_final_{output_dim}")
         if (epoch) % cfg["save_every"] == 0:
-            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_cat_{(epoch)}")
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_cat_{(epoch)}_{output_dim}")
 
 elif model_type == 'mpctm':
     for epoch in trange(num_epochs):
@@ -264,40 +340,64 @@ elif model_type == 'mpctm':
         loss_epoch = 0.0
         for i, (code_sequence, ast_sequence, anno_sequence, anno_sequence_neg) in enumerate(tqdm(train_loader)):
             sim_model.zero_grad()
+            anno_neg_batch = []
+            for neg_id in range(cfg["negative_examples"]):
+                anno_neg_list = []
+                for batch_id in range(len(anno_sequence)):
+                    code2, ast2, anno2, count2 = random.choice(train_dataset)
+                    anno_neg_list.append(anno2)
+                anno_neg_batch.append(prepare_sequence(anno_neg_list, seq_len_anno, word_to_ix_anno))
+            anno_neg_batch = torch.stack(anno_neg_batch)
             anno_in = prepare_sequence(anno_sequence, seq_len_anno, word_to_ix_anno)
             code_in = prepare_sequence(code_sequence, seq_len_code, word_to_ix_code)
             ast_in = prepare_sequence(ast_sequence, seq_len_code, word_to_ix_ast)
-            anno_in_neg = prepare_sequence(anno_sequence_neg, seq_len_anno, word_to_ix_anno)
+            # anno_in_neg = prepare_sequence(anno_sequence_neg, seq_len_anno, word_to_ix_anno)
 
             if torch.cuda.is_available() and use_cuda:
-                sim_score = sim_model(anno_in.cuda(), code_in.cuda(), ast_in.cuda())
-                sim_score_neg = sim_model(anno_in_neg.cuda(), code_in.cuda(), ast_in.cuda())
+                for neg_id in range(cfg["negative_examples"]):
+                    sim_model.zero_grad()
+                    sim_score = sim_model(anno_in.cuda(), code_in.cuda(), ast_in.cuda())
+                    sim_score_neg = sim_model(anno_neg_batch[neg_id].cuda(), code_in.cuda(), ast_in.cuda())
+                    loss =  0.05 - sim_score + sim_score_neg
+                    loss[loss<0] = 0.0
+                    loss = torch.sum(loss)
+                    loss.backward()
+                    opt.step()
+                    loss_epoch += loss
+                # sim_score_neg, _, _ = sim_model(anno_in_neg.cuda(), code_in.cuda(), ast_in.cuda())
             else:
                 sim_score = sim_model(anno_in, code_in, ast_in)
                 sim_score_neg = sim_model(anno_in_neg, code_in, ast_in)
             
-            loss =  0.05 - sim_score + sim_score_neg
-            loss[loss<0] = 0.0
-            loss = torch.sum(loss)
-            loss.backward()
-            opt.step()
+            # loss = 0.0
+            # for loss_id in range(cfg["negative_examples"]):
+            #     loss +=  0.1 - sim_score + sim_score_neg_list[loss_id]
+            # loss =  0.05 - sim_score + sim_score_neg
+            # loss[loss<0] = 0.0
+            # loss = torch.sum(loss)
+            # loss.backward()
+            # opt.step()
             
-            del anno_in, code_in, ast_in, anno_in_neg, sim_score, sim_score_neg
+            # del anno_in, code_in, ast_in, anno_in_neg, sim_score, sim_score_neg
             
             iter += 1
             batch_iter += 1
-            loss_epoch += loss
+            # loss_epoch += loss
         loss_epoch /= batch_iter
-        tqdm.write(f"Epoch: {epoch}. Loss: {loss_epoch}. Model: {model_type}")
+        tqdm.write(f"Epoch: {epoch}. Loss: {loss_epoch}. Model: {model_type}. GPU: {device_id}")
         loss_file.write(f"{epoch},{loss_epoch}\n")
-        if (epoch) % cfg["save_every"] == 0:
-            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_{(epoch)}")
+        if loss_epoch < best_loss:
+            best_loss = loss_epoch
+            torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_bimpm_best")
+        # if (epoch) % cfg["save_every"] == 0:
+        #     torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_{(epoch)}")
 
+print(f"Finished Training Model: {model_type}")
 print('Time taken to train: {} seconds'.format(time.time()-start_time))
 loss_file.close()
 print("Saving Models")
 if model_type == 'mpctm':
-    torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_mpctm_reduced")
+    torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_bimpm")
 elif model_type == 'ct':
     torch.save(sim_model.state_dict(), f"../{save_path}/sim_model_ct")
 elif model_type == 'cat':

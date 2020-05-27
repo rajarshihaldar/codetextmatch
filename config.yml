@@ -1,6 +1,6 @@
 # Epochs, hidden_size are for both translate.py and train.py
-epochs: 140
-batch_size: 200
+epochs: 100
+batch_size: 32
 # model can be 'ct', 'cat' or 'mpctm'
 model: 'cat'
 device_id: 1
@@ -9,8 +9,8 @@ embedding_dim: 300
 learning_rate: 0.0005
 hidden_size: 200
 dense_dim: 200
-output_dim: 100
-num_layers_lstm: 1
+output_dim: 200
+num_layers_lstm: 2
 use_cuda: True
 use_softmax_classifier: False
 use_bin: False
@@ -18,8 +18,8 @@ use_bidirectional: True
 use_adam: True
 use_parallel: False
 save_path: 'saved_models'
-# dataset can be "conala" or "codesearchnet"
-dataset: 'conala'
+# dataset can be "conala" or "codesearchnet or cs105"
+dataset: 'cs105'
 # encoder can be 'LSTM' or 'Transformer'
 encoder: 'LSTM'
 full_bimpm: True

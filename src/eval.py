@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.utils.data
 from operator import itemgetter
-from models import MPCTMClassifier, CATModel, CTModel
+from models import MPCTMClassifier, BiMPMClassifier, CATModel, CTModel
 
 with open("../config.yml", 'r') as config_file:
     cfg = yaml.load(config_file, Loader=yaml.FullLoader)
@@ -145,7 +145,7 @@ if model_type == 'mpctm':
         num_layers_lstm, dense_dim, output_dim, seq_len_code)
     if torch.cuda.is_available() and use_cuda:
         sim_model.cuda()
-    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_mpctm_reduced"))
+    sim_model.load_state_dict(torch.load(f"../{save_path}/sim_model_bimpm"))
 elif model_type == 'ct':
     sim_model = CTModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, output_dim, weights_matrix_code)
     if torch.cuda.is_available() and use_cuda:
@@ -195,7 +195,7 @@ def eval_ct():
                 if torch.cuda.is_available() and use_cuda:
                     code_in = code_in.cuda()
                 
-                sim_score, _, _ = sim_model(anno_in, code_in)
+                sim_score = sim_model(anno_in, code_in)
 
                 # code_vector = code_model(code_in)
                 # if torch.cuda.is_available() and use_cuda:
@@ -242,8 +242,8 @@ def eval_ct():
     r5 /= count
     r10 /= count
     df = pandas.DataFrame(rank_list, columns=['Query','Gold', 'Rank'])
-    df.to_pickle(f"../results/results_CT_{cfg['dataset']}.pkl")
-    with open(f"../results/results_CT_{cfg['dataset']}.txt","w") as f:
+    df.to_pickle(f"../results/results_CT_{cfg['dataset']}_400.pkl")
+    with open(f"../results/results_CT_{cfg['dataset']}_400.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")
@@ -288,7 +288,7 @@ def eval_cat():
                     code_in = code_in.cuda()
                     ast_in = ast_in.cuda()
                 
-                sim_score, _, _ = sim_model(anno_in, code_in, ast_in)
+                sim_score = sim_model(anno_in, code_in, ast_in)
                 sim_score = sim_score.item()
                 ranked_list.append((cand_code, sim_score))
             ranked_list = sorted(ranked_list, key=itemgetter(1),reverse=True)
@@ -327,8 +327,8 @@ def eval_cat():
     r5 /= count
     r10 /= count
     df = pandas.DataFrame(rank_list, columns=['Query','Gold', 'Rank'])
-    df.to_pickle(f"../results/results_CAT_{cfg['dataset']}.pkl")
-    with open(f"../results/results_CAT_{cfg['dataset']}.txt","w") as f:
+    df.to_pickle(f"../results/results_CAT_{cfg['dataset']}_300.pkl")
+    with open(f"../results/results_CAT_{cfg['dataset']}_300.txt","w") as f:
         f.write(f"MRR = {mrr}\n")
         f.write(f"Recall@1 = {r1}\n")
         f.write(f"Recall@5 = {r5}\n")
@@ -431,9 +431,11 @@ def eval_mpctm():
     print("Recall@5 = ",r5)
     print("Recall@10 = ",r10)
 
+start_time = time.time()
 if model_type == 'ct':
     eval_ct()
 elif model_type == 'cat':
     eval_cat()
 elif model_type == 'mpctm':
     eval_mpctm()
+print(f"Time taked to evaluate {model_type}: {(time.time()-start_time)} seconds.")
