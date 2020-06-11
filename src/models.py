@@ -121,14 +121,16 @@ class CATModel(nn.Module):
             self.anno_model = LSTMModel(weights_matrix_anno, hidden_size, num_layers_lstm, dense_dim, 2*output_dim)
             self.code_model = LSTMModel(weights_matrix_code, hidden_size, num_layers_lstm, dense_dim, output_dim)
             self.ast_model = LSTMModel(weights_matrix_ast, hidden_size, num_layers_lstm, dense_dim, output_dim)
-        self.dist = nn.modules.distance.PairwiseDistance(p=2, eps=1e-10)
+        # self.dist = nn.modules.distance.PairwiseDistance(p=2, eps=1e-10)
+        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
 
     def forward(self, anno_in, code_in, ast_in):
         anno_vector = self.anno_model(anno_in)
         code_vector = self.code_model(code_in)
         ast_vector = self.ast_model(ast_in)
         code_ast_vector = torch.cat((code_vector, ast_vector), dim = 1)
-        sim_score = 1.0-self.dist(anno_vector, code_ast_vector)
+        sim_score = self.cos(anno_vector, code_ast_vector)
+        # sim_score = 1.0-self.dist(anno_vector, code_ast_vector)
         return sim_score
 
 class LSTMModelMulti(nn.Module):

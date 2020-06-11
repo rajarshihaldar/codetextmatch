@@ -197,7 +197,8 @@ train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
 if use_softmax_classifier:
     criterion = nn.CrossEntropyLoss()
 else:
-    criterion = nn.MSELoss()
+    # criterion = nn.MSELoss()
+    criterion = nn.BCELoss()
 
 if use_adam:
     opt = torch.optim.Adam(sim_model.parameters(), lr=learning_rate)

@@ -1,5 +1,5 @@
 import ast
-import astpretty
+# import astpretty
 import re
 
 
@@ -468,7 +468,7 @@ def process_ast(parent_node, node):
     if node:
         print("Hello")
         print(node)
-        print(astpretty.pformat(parent_node, show_offsets=False))
+        # print(astpretty.pformat(parent_node, show_offsets=False))
         exit()
         # print(node)
         try:
@@ -486,7 +486,7 @@ if __name__ == "__main__":
     # tree_node = ast.parse('''a = 5''')
     # tree_node = ast.parse('''def f(a: 'annotation', b=1, c=2, *d, e, f=3, **g):\n\tpass''')
     tree_node = ast.parse('''class foo(base1, base2, metaclass=meta):\n\tpass''')
-    print(astpretty.pformat(tree_node, show_offsets=False))
+    # print(astpretty.pformat(tree_node, show_offsets=False))
     s = process_ast(None, tree_node)
     print(s)
     exit()
